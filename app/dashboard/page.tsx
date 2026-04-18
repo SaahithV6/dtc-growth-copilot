@@ -16,8 +16,8 @@ export default async function DashboardPage() {
         <p className="text-sm text-zinc-400">
           Drop your store URL and niche. The copilot will orchestrate TikTok &
           Instagram trend scraping, Shopify product analysis, a Minds AI Brand
-          Twin focus group, and Pixero ad creative generation — then return a
-          launch-ready plan.
+          Twin focus group, and campaign export generation for Pixero +
+          Instagram — then return a launch-ready plan.
         </p>
       </header>
 

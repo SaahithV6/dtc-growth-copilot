@@ -14,9 +14,9 @@ type Stage =
 
 const STAGE_LABELS: Record<Stage, string> = {
   idle: "",
-  scraping: "🔍 Scraping TikTok, Instagram & Shopify…",
-  analyzing: "🧠 Running Brand Twin focus group…",
-  generating: "🎨 Generating ad creatives…",
+  scraping: "🔍 Scraping TikTok, Instagram & store data…",
+  analyzing: "🧠 Climate Advisory Board reviewing your brand…",
+  generating: "📝 Generating campaign brief & Instagram posts…",
   done: "✅ Campaign ready!",
   error: "⚠️ Something went wrong",
 };
@@ -93,6 +93,7 @@ export default function CampaignForm() {
             name="url"
             type="url"
             required
+            defaultValue="https://save-the-bears-2.myshopify.com"
             disabled={stage !== "idle" && stage !== "done" && stage !== "error"}
             placeholder="https://yourstore.com"
             className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm text-white placeholder:text-zinc-500 disabled:opacity-50"
@@ -107,6 +108,7 @@ export default function CampaignForm() {
             name="niche"
             type="text"
             required
+            defaultValue="wildlife conservation"
             disabled={stage !== "idle" && stage !== "done" && stage !== "error"}
             placeholder="Supplements, streetwear, skincare..."
             className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm text-white placeholder:text-zinc-500 disabled:opacity-50"
