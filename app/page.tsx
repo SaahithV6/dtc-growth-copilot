@@ -1,7 +1,4 @@
-"use client";
-
 import Link from "next/link";
-import { SignedIn, SignedOut, SignInButton } from "@clerk/nextjs";
 
 export default function HomePage() {
   return (
@@ -20,21 +17,20 @@ export default function HomePage() {
       </div>
 
       <div className="flex flex-col items-center gap-4 sm:flex-row">
-        <SignedOut>
-          <SignInButton mode="modal">
-            <button className="rounded-full bg-white px-6 py-3 text-sm font-semibold text-black">
-              Sign in to start
-            </button>
-          </SignInButton>
-        </SignedOut>
-        <SignedIn>
-          <Link
-            href="/dashboard"
-            className="rounded-full bg-white px-6 py-3 text-sm font-semibold text-black"
-          >
-            Go to dashboard
-          </Link>
-        </SignedIn>
+        <Link
+          href="/sign-in"
+          className="rounded-full bg-white px-6 py-3 text-sm font-semibold text-black"
+        >
+          Sign in to start
+        </Link>
+
+        <Link
+          href="/dashboard"
+          className="rounded-full border border-zinc-700 px-6 py-3 text-sm font-semibold text-zinc-100"
+        >
+          Go to dashboard
+        </Link>
+
         <a
           href="https://vercel.com/new"
           target="_blank"
