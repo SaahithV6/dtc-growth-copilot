@@ -106,7 +106,7 @@ function compileActionItems(
     items.push(`📝 ${ads.campaignBrief.summary}`);
   }
   items.push("📱 Download campaign brief → drag into Pixero for Meta ads");
-  items.push("📸 Copy Instagram captions → paste into Instagram posts");
+  items.push("📸 Download Pixero creatives → drag into app → post to Instagram");
 
   // Always include
   items.push("📊 Set up conversion tracking (Meta Pixel + CAPI) before launch");

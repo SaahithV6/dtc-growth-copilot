@@ -1,13 +1,94 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import type { CampaignResult } from "@/lib/schemas/campaign";
 
 interface ResultsProps {
   data: CampaignResult;
 }
 
+interface UploadedAsset {
+  id: string;
+  name: string;
+  url: string;
+  contentType: string;
+  kind: "image" | "video";
+}
+
+interface PostState {
+  loading: boolean;
+  success?: boolean;
+  permalink?: string;
+  error?: string;
+}
+
+const SUPPORTED_FILE_TYPES = "image/jpeg,image/png,image/webp,video/mp4";
+const BATCH_DELAY_MS = 30_000;
+
 export default function Results({ data }: ResultsProps) {
   const instagramPosts = data.ads?.instagramPosts ?? [];
+  const [uploadedAssets, setUploadedAssets] = useState<UploadedAsset[]>([]);
+  const [captionSelection, setCaptionSelection] = useState<Record<string, number>>(
+    {},
+  );
+  const [postStates, setPostStates] = useState<Record<string, PostState>>({});
+  const [uploading, setUploading] = useState(false);
+  const [urlInput, setUrlInput] = useState("");
+  const [uploadError, setUploadError] = useState("");
+  const [postingEnabled, setPostingEnabled] = useState(false);
+  const [postingHint, setPostingHint] = useState(
+    "Set INSTAGRAM_ACCESS_TOKEN and INSTAGRAM_USER_ID in your environment to enable auto-posting",
+  );
+  const [batchPosting, setBatchPosting] = useState(false);
+  const [batchProgress, setBatchProgress] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadInstagramAccount() {
+      try {
+        const res = await fetch("/api/instagram", { method: "GET" });
+        const json = await res.json();
+        if (cancelled) return;
+
+        if (json.postingEnabled) {
+          setPostingEnabled(true);
+          const username = json.account?.username ? `@${json.account.username}` : "@wazzat7";
+          setPostingHint(`Connected account: ${username}`);
+          return;
+        }
+
+        setPostingEnabled(false);
+        setPostingHint(
+          json.message ??
+            "Set INSTAGRAM_ACCESS_TOKEN and INSTAGRAM_USER_ID in your environment to enable auto-posting",
+        );
+      } catch {
+        if (!cancelled) {
+          setPostingEnabled(false);
+        }
+      }
+    }
+
+    void loadInstagramAccount();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const pairedAssets = useMemo(
+    () =>
+      uploadedAssets.map((asset, index) => {
+        const fallbackIndex = instagramPosts.length ? index % instagramPosts.length : 0;
+        const selectedIndex = captionSelection[asset.id] ?? fallbackIndex;
+        return {
+          asset,
+          selectedIndex,
+          post: instagramPosts[selectedIndex],
+        };
+      }),
+    [uploadedAssets, instagramPosts, captionSelection],
+  );
 
   function downloadFile(name: string, content: string, type: string) {
     const blob = new Blob([content], { type });
@@ -43,6 +124,170 @@ export default function Results({ data }: ResultsProps) {
       ].join("\n"))
       .join("\n\n--------------------\n\n");
     downloadFile("instagram-captions.txt", content, "text/plain");
+  }
+
+  function inferKindFromUrl(url: string): "image" | "video" {
+    const lower = url.toLowerCase();
+    return lower.endsWith(".mp4") ? "video" : "image";
+  }
+
+  function createAssetFromUrl(url: string): UploadedAsset {
+    const kind = inferKindFromUrl(url);
+    return {
+      id: crypto.randomUUID(),
+      name: url.split("/").pop() || (kind === "video" ? "uploaded-video.mp4" : "uploaded-image"),
+      url,
+      kind,
+      contentType: kind === "video" ? "video/mp4" : "image/*",
+    };
+  }
+
+  async function uploadFiles(files: FileList | File[]) {
+    if (!files.length) {
+      return;
+    }
+
+    setUploading(true);
+    setUploadError("");
+
+    try {
+      const uploaded: UploadedAsset[] = [];
+      for (const file of Array.from(files)) {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const res = await fetch("/api/upload", {
+          method: "POST",
+          body: formData,
+        });
+        const json = await res.json();
+        if (!res.ok || !json.ok) {
+          throw new Error(json.error ?? "Upload failed");
+        }
+
+        uploaded.push({
+          id: String(json.id),
+          name: String(json.name ?? file.name),
+          url: String(json.url),
+          contentType: String(json.contentType ?? file.type),
+          kind: String(json.contentType ?? file.type).startsWith("video/")
+            ? "video"
+            : "image",
+        });
+      }
+
+      setUploadedAssets((prev) => [...prev, ...uploaded]);
+    } catch (err: unknown) {
+      setUploadError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleUrlAdd() {
+    const trimmed = urlInput.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    try {
+      const parsed = new URL(trimmed);
+      if (!/^https?:$/.test(parsed.protocol)) {
+        setUploadError("Only http(s) URLs are supported.");
+        return;
+      }
+      setUploadError("");
+      setUploadedAssets((prev) => [...prev, createAssetFromUrl(trimmed)]);
+      setUrlInput("");
+    } catch {
+      setUploadError("Enter a valid image/video URL.");
+    }
+  }
+
+  function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    void uploadFiles(e.dataTransfer.files);
+  }
+
+  function handleDragOver(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+  }
+
+  async function postAsset(asset: UploadedAsset, captionIndex: number) {
+    const post = instagramPosts[captionIndex];
+    if (!post) {
+      setPostStates((prev) => ({
+        ...prev,
+        [asset.id]: { loading: false, success: false, error: "No caption variant available." },
+      }));
+      return;
+    }
+
+    setPostStates((prev) => ({
+      ...prev,
+      [asset.id]: { loading: true },
+    }));
+
+    const payload =
+      asset.kind === "video"
+        ? { videoUrl: asset.url, caption: post.caption, hashtags: post.hashtags }
+        : { imageUrl: asset.url, caption: post.caption, hashtags: post.hashtags };
+
+    try {
+      const res = await fetch("/api/instagram", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+
+      if (!res.ok || !json.ok) {
+        throw new Error(
+          json.error ??
+            "Instagram publish failed. Check that the upload URL is publicly accessible.",
+        );
+      }
+
+      setPostStates((prev) => ({
+        ...prev,
+        [asset.id]: {
+          loading: false,
+          success: true,
+          permalink: String(json.permalink ?? ""),
+        },
+      }));
+    } catch (err: unknown) {
+      setPostStates((prev) => ({
+        ...prev,
+        [asset.id]: {
+          loading: false,
+          success: false,
+          error: err instanceof Error ? err.message : "Instagram publish failed",
+        },
+      }));
+    }
+  }
+
+  async function handlePostAll() {
+    if (!pairedAssets.length || !postingEnabled || batchPosting) {
+      return;
+    }
+
+    setBatchPosting(true);
+
+    try {
+      for (let i = 0; i < pairedAssets.length; i += 1) {
+        const item = pairedAssets[i];
+        setBatchProgress(`Posting ${i + 1}/${pairedAssets.length}...`);
+        await postAsset(item.asset, item.selectedIndex);
+        if (i < pairedAssets.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY_MS));
+        }
+      }
+      setBatchProgress("Done posting all selected assets.");
+    } finally {
+      setBatchPosting(false);
+    }
   }
 
   return (
@@ -230,9 +475,23 @@ export default function Results({ data }: ResultsProps) {
               Campaign summary unavailable.
             </p>
           )}
-          <p className="mt-2 text-xs text-zinc-500">
-            Open Pixero, then drag/drop this campaign brief or paste your store URL.
-          </p>
+          <ol className="mt-3 list-decimal space-y-1 pl-5 text-xs text-zinc-400">
+            <li>Step 1: Download your campaign brief below.</li>
+            <li>
+              Step 2: Open{" "}
+              <a
+                href="https://pixero.ai"
+                target="_blank"
+                rel="noreferrer"
+                className="text-zinc-200 underline"
+              >
+                Pixero
+              </a>{" "}
+              and drop the brief to generate ad creatives.
+            </li>
+            <li>Step 3: Download the generated images from Pixero.</li>
+            <li>Step 4: Drop the images below to post them to Instagram.</li>
+          </ol>
         </Card>
       </Section>
 
@@ -278,6 +537,145 @@ export default function Results({ data }: ResultsProps) {
         {!instagramPosts.length && (
           <p className="text-sm text-zinc-500">No Instagram post variants available.</p>
         )}
+      </Section>
+
+      {/* Post to Instagram */}
+      <Section title="📸 Post to Instagram">
+        <Card title="Drag & Drop Pixero Creatives">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={handlePostAll}
+              className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-black disabled:opacity-50"
+              disabled={!pairedAssets.length || !postingEnabled || batchPosting || !instagramPosts.length}
+            >
+              {batchPosting ? "Posting..." : "Post All to Instagram"}
+            </button>
+            <p className="text-xs text-zinc-400">{postingHint}</p>
+          </div>
+          {batchProgress && <p className="mb-3 text-xs text-zinc-300">{batchProgress}</p>}
+          <div
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            className="rounded-xl border border-dashed border-zinc-600 bg-zinc-950 p-6 text-center transition hover:border-zinc-400"
+          >
+            <p className="text-sm text-zinc-200">Drag & drop JPG/PNG/WEBP/MP4 files here</p>
+            <p className="mt-1 text-xs text-zinc-400">or use file picker / paste URL below</p>
+            <input
+              type="file"
+              accept={SUPPORTED_FILE_TYPES}
+              multiple
+              className="mx-auto mt-4 block w-full max-w-xs text-xs text-zinc-300 file:mr-4 file:rounded-md file:border-0 file:bg-white file:px-3 file:py-2 file:text-xs file:font-semibold file:text-black"
+              onChange={(e) => {
+                if (e.target.files) {
+                  void uploadFiles(e.target.files);
+                }
+              }}
+            />
+            <div className="mx-auto mt-4 flex w-full max-w-xl gap-2">
+              <input
+                type="url"
+                value={urlInput}
+                onChange={(e) => setUrlInput(e.target.value)}
+                placeholder="Paste image/video URL"
+                className="flex-1 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-500"
+              />
+              <button
+                type="button"
+                onClick={handleUrlAdd}
+                className="rounded-lg border border-zinc-700 px-3 py-2 text-xs font-semibold text-zinc-300"
+              >
+                Add URL
+              </button>
+            </div>
+          </div>
+          {uploading && <p className="mt-3 text-xs text-zinc-400">Uploading...</p>}
+          {uploadError && <p className="mt-3 text-xs text-red-400">{uploadError}</p>}
+
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            {pairedAssets.map(({ asset, selectedIndex, post }) => {
+              const state = postStates[asset.id];
+              return (
+                <div
+                  key={asset.id}
+                  className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-4"
+                >
+                  <div className="mb-3 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950">
+                    {asset.kind === "video" ? (
+                      <video src={asset.url} controls className="h-48 w-full object-cover" />
+                    ) : (
+                      <img src={asset.url} alt={asset.name} className="h-48 w-full object-cover" />
+                    )}
+                  </div>
+                  <p className="truncate text-xs text-zinc-500">{asset.name}</p>
+                  <label className="mt-2 block text-xs text-zinc-400">
+                    Caption Variant
+                    <select
+                      value={selectedIndex}
+                      onChange={(e) =>
+                        setCaptionSelection((prev) => ({
+                          ...prev,
+                          [asset.id]: Number(e.target.value),
+                        }))
+                      }
+                      className="mt-1 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-2 text-xs text-zinc-200"
+                      disabled={!instagramPosts.length || batchPosting}
+                    >
+                      {instagramPosts.map((captionPost, index) => (
+                        <option key={`${asset.id}-${index}`} value={index}>
+                          {`Variant ${index + 1} - ${captionPost.hookStyle}`}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {post ? (
+                    <>
+                      <p className="mt-2 text-sm text-zinc-200 whitespace-pre-line">
+                        {post.caption}
+                      </p>
+                      <p className="mt-2 text-xs text-zinc-400">
+                        {post.hashtags.map((tag) => `#${tag}`).join(" ")}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="mt-2 text-xs text-zinc-500">
+                      No caption variants available from campaign output.
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void postAsset(asset, selectedIndex)}
+                    className="mt-3 rounded-lg bg-white px-3 py-2 text-xs font-semibold text-black disabled:opacity-50"
+                    disabled={!postingEnabled || batchPosting || !post || state?.loading}
+                  >
+                    {state?.loading ? "Posting..." : "Post to @wazzat7"}
+                  </button>
+                  {state?.success && state.permalink && (
+                    <p className="mt-2 text-xs text-green-400">
+                      ✅ Posted.{" "}
+                      <a
+                        href={state.permalink}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline"
+                      >
+                        View on Instagram
+                      </a>
+                    </p>
+                  )}
+                  {state?.success === false && state.error && (
+                    <p className="mt-2 text-xs text-red-400">❌ {state.error}</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {!pairedAssets.length && (
+            <p className="mt-4 text-sm text-zinc-500">
+              Upload Pixero-generated creatives to pair with captions before posting.
+            </p>
+          )}
+        </Card>
       </Section>
 
       {/* Action Items */}
