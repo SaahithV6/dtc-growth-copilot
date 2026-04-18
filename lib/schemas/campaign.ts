@@ -120,6 +120,7 @@ export const campaignResultSchema = z.object({
   scrape: scrapeResultSchema.optional(),
   brandTwin: brandTwinFeedbackSchema.optional(),
   ads: campaignExportSchema.optional(),
+  campaignExport: campaignExportSchema.optional(),
   actionItems: z.array(z.string()).optional(),
   timestamp: z.string(),
 });
