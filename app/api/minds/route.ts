@@ -1,11 +1,17 @@
 import { NextResponse } from "next/server";
-import { runRequestSchema } from "@/lib/schemas/run";
-import { runCampaign } from "@/lib/orchestrator";
+import { z } from "zod";
+import { mindsClient } from "@/lib/clients/minds";
+
+const mindsInput = z.object({
+  url: z.string().url(),
+  niche: z.string().min(2),
+  trends: z.unknown().optional(),
+});
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const parsed = runRequestSchema.safeParse(body);
+    const parsed = mindsInput.safeParse(body);
 
     if (!parsed.success) {
       return NextResponse.json(
@@ -14,18 +20,14 @@ export async function POST(request: Request) {
       );
     }
 
-    const { url, niche } = parsed.data;
-    const result = await runCampaign({ url, niche });
+    const { url, niche, trends } = parsed.data;
+    const result = await mindsClient.reviewBrand({ url, niche, trends });
 
     return NextResponse.json({ ok: true, data: result });
   } catch (err: unknown) {
     return NextResponse.json(
-      {
-        ok: false,
-        error: err instanceof Error ? err.message : "Campaign run failed",
-      },
+      { ok: false, error: err instanceof Error ? err.message : "Minds AI failed" },
       { status: 500 },
     );
   }
 }
-
