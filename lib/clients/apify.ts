@@ -45,7 +45,7 @@ async function scrapeTikTok(niche: string): Promise<{
 
   try {
     const raw = await runActor<Record<string, unknown>>(
-      "clockworks~free-tiktok-scraper",
+      "clockworks~tiktok-scraper",
       {
         hashtags: [niche],
         resultsPerPage: 15,
@@ -128,8 +128,12 @@ async function scrapeInstagram(niche: string): Promise<{
   }
 }
 
-/* ── Shopify product scrape ──────────────────────────────── */
-async function scrapeShopify(storeUrl: string): Promise<{
+type EcommerceStartUrl = string | { url: string; [key: string]: unknown };
+
+/* ── E-commerce product scrape ───────────────────────────── */
+async function scrapeEcommerce(
+  startUrlsInput: string | EcommerceStartUrl | EcommerceStartUrl[],
+): Promise<{
   status: "success" | "error";
   products?: ShopifyProduct[];
   storeName?: string;
@@ -138,15 +142,24 @@ async function scrapeShopify(storeUrl: string): Promise<{
   if (!APIFY_TOKEN) {
     return {
       status: "error",
-      error: "APIFY_API_TOKEN not set — Shopify scrape skipped",
+      error: "APIFY_API_TOKEN not set — E-commerce scrape skipped",
     };
   }
 
   try {
+    const startUrls = Array.isArray(startUrlsInput)
+      ? startUrlsInput
+      : [startUrlsInput];
+    const primaryUrl = startUrls.find((url) => typeof url === "string")
+      ?? (startUrls.find(
+        (url) => typeof url === "object" && typeof url.url === "string",
+      ) as { url?: string } | undefined)?.url
+      ?? "";
+
     const raw = await runActor<Record<string, unknown>>(
-      "dtrungtin~shopify-scraper",
+      "apify~e-commerce-scraping-tool",
       {
-        startUrls: [{ url: storeUrl }],
+        startUrls,
         maxItems: 20,
       },
       90,
@@ -174,14 +187,24 @@ async function scrapeShopify(storeUrl: string): Promise<{
       url: String(item.url ?? ""),
     }));
 
-    const storeName =
-      products[0]?.vendor || new URL(storeUrl).hostname.replace(".myshopify.com", "");
+    let derivedStoreName = "";
+    if (primaryUrl) {
+      try {
+        derivedStoreName = new URL(primaryUrl)
+          .hostname
+          .replace(".myshopify.com", "");
+      } catch {
+        derivedStoreName = primaryUrl;
+      }
+    }
+
+    const storeName = products[0]?.vendor || derivedStoreName;
 
     return { status: "success", products, storeName };
   } catch (err: unknown) {
     return {
       status: "error",
-      error: err instanceof Error ? err.message : "Shopify scrape failed",
+      error: err instanceof Error ? err.message : "E-commerce scrape failed",
     };
   }
 }
@@ -190,16 +213,16 @@ async function scrapeShopify(storeUrl: string): Promise<{
 export const apifyClient = {
   scrapeTikTok,
   scrapeInstagram,
-  scrapeShopify,
+  scrapeEcommerce,
 
   /** Legacy compat — run all three scrapers in parallel */
   async scrapeAll(url: string, niche: string): Promise<ScrapeResult> {
-    const [tiktok, instagram, shopify] = await Promise.all([
+    const [tiktok, instagram, ecommerce] = await Promise.all([
       scrapeTikTok(niche),
       scrapeInstagram(niche),
-      scrapeShopify(url),
+      scrapeEcommerce(url),
     ]);
-    return { tiktok, instagram, shopify };
+    return { tiktok, instagram, shopify: ecommerce };
   },
 
   /** Kept for backward compat with the old run route */
@@ -207,4 +230,3 @@ export const apifyClient = {
     return this.scrapeAll(url, niche);
   },
 };
-
