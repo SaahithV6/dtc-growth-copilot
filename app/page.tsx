@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import { SignedIn, SignedOut, SignInButton } from "@clerk/nextjs";
 
@@ -44,7 +46,7 @@ export default function HomePage() {
       </div>
 
       <div className="grid w-full gap-6 sm:grid-cols-3">
-        {['Trends & competitors', 'Brand twin review', 'Ad campaign drafts'].map(
+        {["Trends & competitors", "Brand twin review", "Ad campaign drafts"].map(
           (item) => (
             <div
               key={item}
