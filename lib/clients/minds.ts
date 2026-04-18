@@ -4,6 +4,10 @@ import type { BrandTwinFeedback, ScrapeResult } from "@/lib/schemas/campaign";
 const MINDS_API_KEY = process.env.MINDS_API_KEY ?? "";
 const MINDS_BASE = "https://api.getminds.ai/v1";
 
+function mindName(niche: string): string {
+  return `brand-twin-${niche.replace(/[^a-z0-9]/gi, "-").toLowerCase()}`;
+}
+
 /**
  * Novel approach for the hackathon:
  * Creates a "Brand Twin" — a high-fidelity AI clone of the brand's ideal
@@ -31,12 +35,13 @@ export const mindsClient = {
     try {
       const scrapeData = trends as ScrapeResult;
       const personaDescription = buildPersonaPrompt(url, niche, scrapeData);
+      const name = mindName(niche);
 
       // Step 1: Create (or reference) a Mind that represents the ideal customer
       const mindRes = await axios.post(
         `${MINDS_BASE}/minds`,
         {
-          name: `brand-twin-${niche.replace(/[^a-z0-9]/gi, "-").toLowerCase()}`,
+          name,
           description: personaDescription,
           model: "gpt-4o",
           instructions: personaDescription,
@@ -51,15 +56,14 @@ export const mindsClient = {
         },
       );
 
-      const mindName =
-        mindRes.data?.name ??
-        `brand-twin-${niche.replace(/[^a-z0-9]/gi, "-").toLowerCase()}`;
+      const resolvedName =
+        mindRes.data?.name ?? name;
 
       // Step 2: Run a focus-group conversation
       const campaignBrief = buildCampaignBrief(url, niche, scrapeData);
 
       const chatRes = await axios.post(
-        `${MINDS_BASE}/minds/${mindName}/chat`,
+        `${MINDS_BASE}/minds/${resolvedName}/chat`,
         {
           message: campaignBrief,
         },
@@ -74,7 +78,7 @@ export const mindsClient = {
 
       const reply = String(chatRes.data?.message ?? chatRes.data?.response ?? chatRes.data ?? "");
 
-      return parseBrandTwinResponse(reply, mindName);
+      return parseBrandTwinResponse(reply, resolvedName);
     } catch (err: unknown) {
       // Graceful fallback — generate review from scraped data
       return this.generateFallbackReview(url, niche, trends as ScrapeResult);
