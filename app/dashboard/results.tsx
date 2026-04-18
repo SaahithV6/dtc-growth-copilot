@@ -7,6 +7,44 @@ interface ResultsProps {
 }
 
 export default function Results({ data }: ResultsProps) {
+  const instagramPosts = data.ads?.instagramPosts ?? [];
+
+  function downloadFile(name: string, content: string, type: string) {
+    const blob = new Blob([content], { type });
+    const blobUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = blobUrl;
+    link.download = name;
+    link.click();
+    URL.revokeObjectURL(blobUrl);
+  }
+
+  function handleDownloadCampaignBrief() {
+    if (!data.ads?.campaignBrief?.html) {
+      return;
+    }
+    downloadFile("campaign-brief.html", data.ads.campaignBrief.html, "text/html");
+  }
+
+  async function handleCopyCaption(caption: string, hashtags: string[]) {
+    const text = `${caption}\n\n${hashtags.map((tag) => `#${tag}`).join(" ")}`;
+    await navigator.clipboard.writeText(text);
+  }
+
+  function handleDownloadAllCaptions() {
+    if (!instagramPosts.length) {
+      return;
+    }
+    const content = instagramPosts
+      .map((post, index) => [
+        `Variant ${index + 1} (${post.hookStyle}, ${post.type}, ${post.dimensions})`,
+        post.caption,
+        post.hashtags.map((tag) => `#${tag}`).join(" "),
+      ].join("\n"))
+      .join("\n\n--------------------\n\n");
+    downloadFile("instagram-captions.txt", content, "text/plain");
+  }
+
   return (
     <div className="space-y-8">
       {/* Trend Analysis */}
@@ -164,66 +202,82 @@ export default function Results({ data }: ResultsProps) {
         </Card>
       </Section>
 
-      {/* Ad Creatives & Campaign */}
-      <Section title="🎨 Ad Creatives & Campaign">
-        <Card title={data.ads?.campaignName ?? "Campaign"} status={data.ads?.status}>
-          {data.ads?.strategy && (
-            <p className="mb-4 text-sm text-zinc-300">{data.ads.strategy}</p>
-          )}
-          {data.ads?.hooks?.length ? (
-            <div className="mb-4">
-              <p className="mb-1 text-xs font-medium uppercase tracking-wider text-zinc-500">
-                Hooks
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {data.ads.hooks.map((h, i) => (
-                  <span
-                    key={i}
-                    className="rounded-full bg-zinc-800 px-3 py-1 text-xs text-zinc-300"
-                  >
-                    {h}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ) : null}
-          <div className="grid gap-3 sm:grid-cols-2">
-            {data.ads?.creatives?.map((c, i) => (
-              <div
-                key={i}
-                className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-4"
-              >
-                <div className="mb-2 flex items-center gap-2">
-                  <span className="rounded-full bg-zinc-700 px-2 py-0.5 text-xs uppercase text-zinc-300">
-                    {c.format}
-                  </span>
-                </div>
-                <p className="text-sm font-medium text-zinc-200">
-                  {c.headline || c.concept}
-                </p>
-                {c.primaryText && (
-                  <p className="mt-1 text-xs text-zinc-400">{c.primaryText}</p>
-                )}
-                {c.callToAction && (
-                  <span className="mt-2 inline-block rounded bg-white px-2 py-0.5 text-xs font-medium text-black">
-                    {c.callToAction}
-                  </span>
-                )}
-              </div>
-            ))}
+      {/* Campaign Export */}
+      <Section title="📝 Campaign Export">
+        <Card title="Campaign Brief" status={data.ads?.status}>
+          <div className="mb-4 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={handleDownloadCampaignBrief}
+              className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-black disabled:opacity-50"
+              disabled={!data.ads?.campaignBrief?.html}
+            >
+              Download Campaign Brief
+            </button>
+            <a
+              href={data.ads?.campaignBrief?.pixeroUrl || "https://pixero.ai"}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-lg border border-zinc-700 px-3 py-2 text-xs font-semibold text-zinc-200"
+            >
+              Open in Pixero
+            </a>
           </div>
-          {data.ads?.budget && (
-            <div className="mt-4 rounded-lg bg-zinc-900/50 p-3">
-              <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
-                Budget Recommendation
-              </p>
-              <p className="mt-1 text-sm text-zinc-300">
-                {data.ads.budget.daily} daily · {data.ads.budget.total} total ·{" "}
-                {data.ads.budget.duration}
-              </p>
-            </div>
+          {data.ads?.campaignBrief?.summary ? (
+            <p className="text-sm text-zinc-300">{data.ads.campaignBrief.summary}</p>
+          ) : (
+            <p className="text-sm text-zinc-500">
+              Campaign summary unavailable.
+            </p>
           )}
+          <p className="mt-2 text-xs text-zinc-500">
+            Open Pixero, then drag/drop this campaign brief or paste your store URL.
+          </p>
         </Card>
+      </Section>
+
+      {/* Instagram Posts */}
+      <Section title="📸 Instagram Posts">
+        <div className="mb-3 flex justify-end">
+          <button
+            type="button"
+            onClick={handleDownloadAllCaptions}
+            className="rounded-lg border border-zinc-700 px-3 py-2 text-xs font-semibold text-zinc-200 disabled:opacity-50"
+            disabled={!instagramPosts.length}
+          >
+            Download All Captions
+          </button>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {instagramPosts.map((post, i) => (
+            <div
+              key={i}
+              className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-4"
+            >
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="rounded-full bg-zinc-700 px-2 py-0.5 text-xs uppercase text-zinc-300">
+                  {post.hookStyle.replaceAll("_", " ")}
+                </span>
+                <span className="text-xs text-zinc-500">{post.dimensions}</span>
+              </div>
+              <p className="text-sm text-zinc-200 whitespace-pre-line">{post.caption}</p>
+              <p className="mt-2 text-xs text-zinc-400">
+                {post.hashtags.map((tag) => `#${tag}`).join(" ")}
+              </p>
+              <p className="mt-2 text-xs text-zinc-500 uppercase">{post.type}</p>
+              <button
+                type="button"
+                onClick={() => handleCopyCaption(post.caption, post.hashtags)}
+                className="mt-3 rounded bg-white px-3 py-1 text-xs font-semibold text-black"
+              >
+                Copy to Clipboard
+              </button>
+            </div>
+          ))}
+        </div>
+        {!instagramPosts.length && (
+          <p className="text-sm text-zinc-500">No Instagram post variants available.</p>
+        )}
       </Section>
 
       {/* Action Items */}

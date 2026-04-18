@@ -1,6 +1,6 @@
 import { apifyClient } from "@/lib/clients/apify";
 import { mindsClient } from "@/lib/clients/minds";
-import { pixeroClient } from "@/lib/clients/pixero";
+import { campaignExportClient } from "@/lib/clients/campaign-export";
 import type { CampaignResult, ScrapeResult } from "@/lib/schemas/campaign";
 
 export interface OrchestratorInput {
@@ -12,7 +12,7 @@ export interface OrchestratorInput {
  * Main orchestration pipeline — coordinates all agents:
  * 1. Scrape (Apify: TikTok, Instagram, Shopify in parallel)
  * 2. Brand Twin Review (Minds AI)
- * 3. Ad Generation (Pixero)
+ * 3. Campaign Export (Pixero-ready brief + Instagram assets)
  * 4. Compile action items
  */
 export async function runCampaign(
@@ -39,8 +39,8 @@ export async function runCampaign(
     trends: scrape,
   });
 
-  /* ── Step 3: Ad Generation (Pixero) ──────────────────────── */
-  const ads = await pixeroClient.generateAds({
+  /* ── Step 3: Campaign Export ──────────────────────────────── */
+  const ads = campaignExportClient.generateCampaignExport({
     url,
     niche,
     trends: scrape,
@@ -96,15 +96,17 @@ function compileActionItems(
     });
   }
 
-  // From ads
-  if (ads?.creatives?.length) {
+  // From campaign export
+  if (ads?.instagramPosts?.length) {
     items.push(
-      `🎨 ${ads.creatives.length} ad creatives ready — launch A/B tests on Meta`,
+      `🎨 ${ads.instagramPosts.length} Instagram caption variants ready — test awareness, social proof, urgency, and UGC hooks`,
     );
   }
-  if (ads?.budget) {
-    items.push(`💰 Recommended budget: ${ads.budget.daily} daily for ${ads.budget.duration}`);
+  if (ads?.campaignBrief?.summary) {
+    items.push(`📝 ${ads.campaignBrief.summary}`);
   }
+  items.push("📱 Download campaign brief → drag into Pixero for Meta ads");
+  items.push("📸 Copy Instagram captions → paste into Instagram posts");
 
   // Always include
   items.push("📊 Set up conversion tracking (Meta Pixel + CAPI) before launch");

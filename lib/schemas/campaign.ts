@@ -89,40 +89,37 @@ export const brandTwinFeedbackSchema = z.object({
 
 export type BrandTwinFeedback = z.infer<typeof brandTwinFeedbackSchema>;
 
-/* ── Pixero ad creatives ──────────────────────────────────── */
-export const adCreativeSchema = z.object({
-  format: z.string(),
-  concept: z.string(),
-  headline: z.string().optional(),
-  primaryText: z.string().optional(),
-  callToAction: z.string().optional(),
-  imageUrl: z.string().optional(),
-  videoUrl: z.string().optional(),
-});
-
-export type AdCreative = z.infer<typeof adCreativeSchema>;
-
-export const pixeroResultSchema = z.object({
+/* ── Campaign export ───────────────────────────────────────── */
+export const campaignExportSchema = z.object({
   status: z.enum(["success", "error"]),
-  campaignName: z.string().optional(),
-  strategy: z.string().optional(),
-  hooks: z.array(z.string()).optional(),
-  creatives: z.array(adCreativeSchema).optional(),
-  budget: z.object({
-    daily: z.string().optional(),
-    total: z.string().optional(),
-    duration: z.string().optional(),
-  }).optional(),
+  campaignBrief: z.object({
+    html: z.string(),
+    summary: z.string(),
+    pixeroUrl: z.string(),
+  }),
+  instagramPosts: z.array(z.object({
+    type: z.enum(["feed", "reel", "story"]),
+    caption: z.string(),
+    hashtags: z.array(z.string()),
+    callToAction: z.string(),
+    dimensions: z.string(),
+    hookStyle: z.string(),
+  })),
+  downloadableAssets: z.array(z.object({
+    name: z.string(),
+    type: z.enum(["campaign_brief", "instagram_caption", "ad_copy"]),
+    content: z.string(),
+  })),
   error: z.string().optional(),
 });
 
-export type PixeroResult = z.infer<typeof pixeroResultSchema>;
+export type CampaignExport = z.infer<typeof campaignExportSchema>;
 
 /* ── Full campaign result ─────────────────────────────────── */
 export const campaignResultSchema = z.object({
   scrape: scrapeResultSchema.optional(),
   brandTwin: brandTwinFeedbackSchema.optional(),
-  ads: pixeroResultSchema.optional(),
+  ads: campaignExportSchema.optional(),
   actionItems: z.array(z.string()).optional(),
   timestamp: z.string(),
 });
