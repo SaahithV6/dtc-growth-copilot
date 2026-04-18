@@ -36,6 +36,7 @@ export default function Results({ data }: ResultsProps) {
   const [urlInput, setUrlInput] = useState("");
   const [uploadError, setUploadError] = useState("");
   const [postingEnabled, setPostingEnabled] = useState(false);
+  const [instagramUsername, setInstagramUsername] = useState<string>("");
   const [postingHint, setPostingHint] = useState(
     "Set INSTAGRAM_ACCESS_TOKEN and INSTAGRAM_USER_ID in your environment to enable auto-posting",
   );
@@ -53,8 +54,9 @@ export default function Results({ data }: ResultsProps) {
 
         if (json.postingEnabled) {
           setPostingEnabled(true);
-          const username = json.account?.username ? `@${json.account.username}` : "@wazzat7";
-          setPostingHint(`Connected account: ${username}`);
+          const username = String(json.account?.username ?? "");
+          setInstagramUsername(username);
+          setPostingHint(username ? `Connected account: @${username}` : "Connected Instagram account");
           return;
         }
 
@@ -133,9 +135,22 @@ export default function Results({ data }: ResultsProps) {
 
   function createAssetFromUrl(url: string): UploadedAsset {
     const kind = inferKindFromUrl(url);
+    let fileName = kind === "video" ? "uploaded-video.mp4" : "uploaded-image";
+
+    try {
+      const parsed = new URL(url);
+      const segments = parsed.pathname.split("/").filter(Boolean);
+      const last = segments.at(-1);
+      if (last) {
+        fileName = decodeURIComponent(last);
+      }
+    } catch {
+      // no-op
+    }
+
     return {
       id: crypto.randomUUID(),
-      name: url.split("/").pop() || (kind === "video" ? "uploaded-video.mp4" : "uploaded-image"),
+      name: fileName,
       url,
       kind,
       contentType: kind === "video" ? "video/mp4" : "image/*",
@@ -253,7 +268,7 @@ export default function Results({ data }: ResultsProps) {
         [asset.id]: {
           loading: false,
           success: true,
-          permalink: String(json.permalink ?? ""),
+          permalink: json.permalink ? String(json.permalink) : undefined,
         },
       }));
     } catch (err: unknown) {
@@ -648,19 +663,28 @@ export default function Results({ data }: ResultsProps) {
                     className="mt-3 rounded-lg bg-white px-3 py-2 text-xs font-semibold text-black disabled:opacity-50"
                     disabled={!postingEnabled || batchPosting || !post || state?.loading}
                   >
-                    {state?.loading ? "Posting..." : "Post to @wazzat7"}
+                    {state?.loading
+                      ? "Posting..."
+                      : instagramUsername
+                        ? `Post to @${instagramUsername}`
+                        : "Post to Instagram"}
                   </button>
-                  {state?.success && state.permalink && (
+                  {state?.success && (
                     <p className="mt-2 text-xs text-green-400">
-                      ✅ Posted.{" "}
-                      <a
-                        href={state.permalink}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="underline"
-                      >
-                        View on Instagram
-                      </a>
+                      ✅ Posted.
+                      {state.permalink ? (
+                        <>
+                          {" "}
+                          <a
+                            href={state.permalink}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="underline"
+                          >
+                            View on Instagram
+                          </a>
+                        </>
+                      ) : null}
                     </p>
                   )}
                   {state?.success === false && state.error && (

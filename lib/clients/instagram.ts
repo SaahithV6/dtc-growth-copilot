@@ -138,4 +138,26 @@ export const instagramClient = {
       id: String(response.data?.id ?? IG_USER_ID),
     };
   },
+
+  async getMediaPermalink(mediaId: string): Promise<string | null> {
+    const envError = validateEnv();
+    if (envError) {
+      return null;
+    }
+
+    try {
+      const response = await axios.get(`${GRAPH_API_BASE}/${mediaId}`, {
+        params: {
+          fields: "permalink",
+          access_token: IG_ACCESS_TOKEN,
+        },
+        timeout: 30_000,
+      });
+
+      const permalink = response.data?.permalink;
+      return typeof permalink === "string" ? permalink : null;
+    } catch {
+      return null;
+    }
+  },
 };

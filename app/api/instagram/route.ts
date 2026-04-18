@@ -68,10 +68,14 @@ export async function POST(request: Request) {
       );
     }
 
+    const permalink = result.mediaId
+      ? await instagramClient.getMediaPermalink(result.mediaId)
+      : null;
+
     return NextResponse.json({
       ok: true,
       mediaId: result.mediaId,
-      permalink: `https://instagram.com/p/${result.mediaId ?? ""}`,
+      permalink,
     });
   } catch (err: unknown) {
     return NextResponse.json(
