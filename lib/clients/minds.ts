@@ -2,22 +2,10 @@ import axios from "axios";
 import type { BrandTwinFeedback, ScrapeResult } from "@/lib/schemas/campaign";
 
 const MINDS_API_KEY = process.env.MINDS_API_KEY ?? "";
-const MINDS_BASE = "https://api.getminds.ai/v1";
+const MINDS_BASE = "https://getminds.ai/api/v1";
+const BRAND_REVIEW_PANEL_ID = "2928c3d3-9e73-450d-818a-1e64de0446b0";
+const BRAND_REVIEW_PANEL_NAME = "Climate Board API Access";
 
-function mindName(niche: string): string {
-  return `brand-twin-${niche.replace(/[^a-z0-9]/gi, "-").toLowerCase()}`;
-}
-
-/**
- * Novel approach for the hackathon:
- * Creates a "Brand Twin" — a high-fidelity AI clone of the brand's ideal
- * customer persona built from scraped data. Then runs a simulated focus-group
- * conversation where the brand twin evaluates campaign strategy, gives feedback
- * on ad copy, and suggests improvements.
- *
- * This is novel because it uses Minds AI not just for outreach but as a
- * **synthetic customer research panel**.
- */
 export const mindsClient = {
   async reviewBrand({
     url,
@@ -34,53 +22,33 @@ export const mindsClient = {
 
     try {
       const scrapeData = trends as ScrapeResult;
-      const personaDescription = buildPersonaPrompt(url, niche, scrapeData);
-      const name = mindName(niche);
+      const sparkIds = await fetchPanelSparkIds();
 
-      // Step 1: Create (or reference) a Mind that represents the ideal customer
-      const mindRes = await axios.post(
-        `${MINDS_BASE}/minds`,
-        {
-          name,
-          description: personaDescription,
-          model: "gpt-4o",
-          instructions: personaDescription,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${MINDS_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          timeout: 30_000,
-          validateStatus: (s) => s < 500, // 409 = already exists, which is fine
-        },
-      );
+      if (sparkIds.length) {
+        const linkKnowledgeResults = await Promise.allSettled(
+          sparkIds.map((sparkId) =>
+            addSparkKnowledge(sparkId, {
+              link: url,
+              description: "DTC store to review",
+            }),
+          ),
+        );
+        logSettledFailures(linkKnowledgeResults, "link knowledge");
 
-      const resolvedName =
-        mindRes.data?.name ?? name;
+        const keywords = extractKeywordSignals(niche, scrapeData);
+        if (keywords.length) {
+          const keywordKnowledgeResults = await Promise.allSettled(
+            sparkIds.map((sparkId) => addSparkKnowledge(sparkId, { keywords })),
+          );
+          logSettledFailures(keywordKnowledgeResults, "keyword knowledge");
+        }
+      }
 
-      // Step 2: Run a focus-group conversation
-      const campaignBrief = buildCampaignBrief(url, niche, scrapeData);
+      const question = buildPanelQuestion(url, niche, scrapeData);
+      const reply = await askPanel(question);
 
-      const chatRes = await axios.post(
-        `${MINDS_BASE}/minds/${resolvedName}/chat`,
-        {
-          message: campaignBrief,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${MINDS_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          timeout: 60_000,
-        },
-      );
-
-      const reply = String(chatRes.data?.message ?? chatRes.data?.response ?? chatRes.data ?? "");
-
-      return parseBrandTwinResponse(reply, resolvedName);
-    } catch (err: unknown) {
-      // Graceful fallback — generate review from scraped data
+      return parsePanelResponse(reply, question);
+    } catch {
       return this.generateFallbackReview(url, niche, trends as ScrapeResult);
     }
   },
@@ -110,7 +78,7 @@ export const mindsClient = {
 
     return {
       status: "success",
-      personaName: `${niche.charAt(0).toUpperCase() + niche.slice(1)} Enthusiast`,
+      personaName: BRAND_REVIEW_PANEL_NAME,
       overallScore: 7.5,
       feedback: {
         brandPerception: `Based on ${products.length} products at avg $${avgPrice}, this brand targets a value-conscious ${niche} buyer. The product range ${products.length > 5 ? "is well diversified" : "could benefit from expansion"}.`,
@@ -129,78 +97,264 @@ export const mindsClient = {
       },
       conversation: [
         {
-          role: "system" as const,
-          content: `Brand Twin persona for ${niche} customer generated from scraped data.`,
+          role: "system",
+          content: `${BRAND_REVIEW_PANEL_NAME} fallback analysis generated from scraped data.`,
         },
         {
-          role: "user" as const,
+          role: "user",
           content: `Review this ${niche} brand at ${url}`,
         },
         {
-          role: "assistant" as const,
-          content: `Analysis complete — see feedback sections for detailed Brand Twin review.`,
+          role: "assistant",
+          content: "Analysis complete — see feedback sections for detailed panel review.",
         },
       ],
     };
   },
 };
 
-/* ── Helpers ──────────────────────────────────────────────── */
+type SparkKnowledgePayload =
+  | {
+      link: string;
+      description: string;
+    }
+  | {
+      keywords: string[];
+    };
 
-function buildPersonaPrompt(
-  url: string,
-  niche: string,
-  scrape: ScrapeResult,
-): string {
-  const products = scrape?.shopify?.products ?? [];
-  const avgPrice = products.length
-    ? (
-        products.reduce((s, p) => s + parseFloat(p.price || "0"), 0) /
-        products.length
-      ).toFixed(2)
-    : "unknown";
+const mindsHeaders = {
+  Authorization: `Bearer ${MINDS_API_KEY}`,
+  "Content-Type": "application/json",
+};
 
-  return [
-    `You are a Brand Twin — a synthetic AI clone of the ideal customer persona for a DTC ${niche} brand (${url}).`,
-    `This customer is aged 18-34, shops online, discovers brands via TikTok/Instagram, and spends ~$${avgPrice} per order in the ${niche} category.`,
-    `The brand sells: ${products.slice(0, 5).map((p) => p.title).join(", ") || "products in the " + niche + " space"}.`,
-    `Your role is to act as a synthetic focus-group participant. Evaluate any campaign strategy, ad copy, or creative concepts presented to you from the perspective of this ideal customer. Be honest, specific, and actionable.`,
-  ].join(" ");
+async function fetchPanelSparkIds(): Promise<string[]> {
+  const res = await axios.get(`${MINDS_BASE}/panels/${BRAND_REVIEW_PANEL_ID}`, {
+    headers: mindsHeaders,
+    timeout: 30_000,
+  });
+
+  const panelData = (res.data?.panel ?? res.data) as Record<string, unknown>;
+  const sparks = (panelData.sparks ?? []) as Array<unknown>;
+
+  return sparks
+    .map((spark) => {
+      if (typeof spark === "string") {
+        return spark;
+      }
+      if (spark && typeof spark === "object") {
+        const sparkRecord = spark as Record<string, unknown>;
+        return String(
+          sparkRecord.id ?? sparkRecord.sparkId ?? sparkRecord.uuid ?? "",
+        );
+      }
+      return "";
+    })
+    .filter(Boolean);
 }
 
-function buildCampaignBrief(
-  url: string,
-  niche: string,
-  scrape: ScrapeResult,
-): string {
+async function addSparkKnowledge(
+  sparkId: string,
+  payload: SparkKnowledgePayload,
+): Promise<void> {
+  await axios.post(`${MINDS_BASE}/sparks/${sparkId}/knowledge`, payload, {
+    headers: mindsHeaders,
+    timeout: 30_000,
+  });
+}
+
+function extractKeywordSignals(niche: string, scrape: ScrapeResult): string[] {
+  const tokens = new Set<string>();
+  const nicheTokens = niche
+    .split(/[,\-|/]/)
+    .map((part) => normalizeKeyword(part))
+    .filter((part) => part.length > 2);
+  nicheTokens.forEach((token) => tokens.add(token));
+
   const tiktokTrends = scrape?.tiktok?.trends ?? [];
-  const igPosts = scrape?.instagram?.posts ?? [];
+  const instagramPosts = scrape?.instagram?.posts ?? [];
   const products = scrape?.shopify?.products ?? [];
 
+  tiktokTrends.forEach((trend) => {
+    trend.hashtags?.forEach((tag) => {
+      const normalized = normalizeKeyword(tag);
+      if (normalized.length > 2) {
+        tokens.add(normalized);
+      }
+    });
+  });
+
+  instagramPosts.forEach((post) => {
+    post.hashtags?.forEach((tag) => {
+      const normalized = normalizeKeyword(tag);
+      if (normalized.length > 2) {
+        tokens.add(normalized);
+      }
+    });
+  });
+
+  products.forEach((product) => {
+    const normalizedTitle = normalizeKeyword(product.title);
+    if (normalizedTitle.length > 2) {
+      tokens.add(normalizedTitle);
+    }
+    if (product.productType) {
+      const normalizedType = normalizeKeyword(product.productType);
+      if (normalizedType.length > 2) {
+        tokens.add(normalizedType);
+      }
+    }
+  });
+
+  return [...tokens].slice(0, 30);
+}
+
+function normalizeKeyword(value: string): string {
+  return value
+    .replace(/^#/, "")
+    .replace(/[^a-zA-Z0-9\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function buildPanelQuestion(url: string, niche: string, scrape: ScrapeResult): string {
+  const products = scrape?.shopify?.products ?? [];
+  const tiktokTrends = scrape?.tiktok?.trends ?? [];
+  const igPosts = scrape?.instagram?.posts ?? [];
+
   return [
-    `CAMPAIGN BRIEF FOR REVIEW:`,
-    `Brand: ${url} | Niche: ${niche}`,
-    `Products: ${products.slice(0, 5).map((p) => `${p.title} ($${p.price})`).join(", ") || "N/A"}`,
-    `TikTok trends found: ${tiktokTrends.length} posts; top themes: ${tiktokTrends.slice(0, 3).map((t) => t.text.slice(0, 50)).join("; ") || "N/A"}`,
-    `Instagram competitor posts: ${igPosts.length}`,
-    ``,
-    `Please provide: 1) Overall brand perception score (0-10), 2) Ad copy review, 3) 5 specific improvements, 4) Target audience fit analysis, 5) Your emotional response as the ideal customer.`,
-    `Format your response as structured JSON with keys: overallScore, brandPerception, adCopyReview, improvements (array), targetAudienceFit, emotionalResponse.`,
+    `Evaluate this DTC brand and campaign opportunity.`,
+    `Store URL: ${url}`,
+    `Niche: ${niche}`,
+    `Top products: ${products.slice(0, 5).map((p) => p.title).join(", ") || "N/A"}`,
+    `TikTok trends: ${tiktokTrends.slice(0, 5).flatMap((t) => t.hashtags ?? []).join(", ") || "N/A"}`,
+    `Instagram competitor hashtags: ${igPosts.slice(0, 5).flatMap((p) => p.hashtags ?? []).join(", ") || "N/A"}`,
+    "Respond as strict JSON with keys: overallScore, brandPerception, adCopyReview, improvements (array of 5), targetAudienceFit, emotionalResponse.",
   ].join("\n");
 }
 
-function parseBrandTwinResponse(
-  reply: string,
-  mindName: string,
-): BrandTwinFeedback {
+async function askPanel(question: string): Promise<string> {
+  const response = await axios.post(
+    `${MINDS_BASE}/panels/${BRAND_REVIEW_PANEL_ID}/ask`,
+    { question },
+    {
+      headers: {
+        ...mindsHeaders,
+        Accept: "text/event-stream, application/json",
+      },
+      timeout: 60_000,
+      responseType: "text",
+      transformResponse: [(data) => data],
+      validateStatus: () => true,
+    },
+  );
+
+  if (response.status >= 400) {
+    const payloadPreview = String(response.data ?? "").slice(0, 200);
+    throw new Error(
+      `Minds panel ask failed with ${response.status}: ${payloadPreview}`,
+    );
+  }
+
+  const raw =
+    typeof response.data === "string"
+      ? response.data
+      : JSON.stringify(response.data);
+  return parseSseOrRawResponse(raw);
+}
+
+function logSettledFailures(
+  results: PromiseSettledResult<unknown>[],
+  context: string,
+): void {
+  results.forEach((result) => {
+    if (result.status === "rejected") {
+      const reason =
+        result.reason instanceof Error
+          ? result.reason.message
+          : String(result.reason);
+      console.warn(`Minds ${context} enrichment failed: ${reason}`);
+    }
+  });
+}
+
+function parseSseOrRawResponse(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+      return extractReplyText(parsed) || trimmed;
+    } catch {
+      return trimmed;
+    }
+  }
+
+  const fragments: string[] = [];
+  for (const line of trimmed.split(/\r?\n/)) {
+    if (!line.startsWith("data:")) {
+      continue;
+    }
+
+    const payload = line.slice(5).trim();
+    if (!payload || payload === "[DONE]") {
+      continue;
+    }
+
+    try {
+      const parsed = JSON.parse(payload) as Record<string, unknown>;
+      const chunk = extractReplyText(parsed);
+      if (chunk) {
+        fragments.push(chunk);
+      }
+    } catch {
+      fragments.push(payload);
+    }
+  }
+
+  return fragments.join("\n").trim() || trimmed;
+}
+
+function extractReplyText(payload: Record<string, unknown>): string {
+  const direct = payload.answer ?? payload.message ?? payload.response ?? payload.text ?? payload.content;
+  if (typeof direct === "string") {
+    return direct;
+  }
+
+  const choices = payload.choices;
+  if (Array.isArray(choices) && choices.length) {
+    const choice = choices[0] as Record<string, unknown>;
+    const delta = choice.delta as Record<string, unknown> | undefined;
+    const deltaContent = delta?.content;
+    if (typeof deltaContent === "string") {
+      return deltaContent;
+    }
+    const message = choice.message as Record<string, unknown> | undefined;
+    const messageContent = message?.content;
+    if (typeof messageContent === "string") {
+      return messageContent;
+    }
+  }
+
+  const data = payload.data;
+  if (data && typeof data === "object") {
+    return extractReplyText(data as Record<string, unknown>);
+  }
+
+  return "";
+}
+
+function parsePanelResponse(reply: string, question: string): BrandTwinFeedback {
   try {
-    // Attempt to parse structured JSON from the response
     const jsonMatch = reply.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
+      const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
       return {
         status: "success",
-        personaName: mindName,
+        personaName: BRAND_REVIEW_PANEL_NAME,
         overallScore: Number(parsed.overallScore ?? 7),
         feedback: {
           brandPerception: String(parsed.brandPerception ?? ""),
@@ -212,18 +366,18 @@ function parseBrandTwinResponse(
           emotionalResponse: String(parsed.emotionalResponse ?? ""),
         },
         conversation: [
-          { role: "user", content: "Campaign brief submitted" },
+          { role: "user", content: question },
           { role: "assistant", content: reply },
         ],
       };
     }
   } catch {
-    // Fall through to plain text response
+    // fall through to plain text response
   }
 
   return {
     status: "success",
-    personaName: mindName,
+    personaName: BRAND_REVIEW_PANEL_NAME,
     overallScore: 7,
     feedback: {
       brandPerception: reply.slice(0, 500),
@@ -233,9 +387,8 @@ function parseBrandTwinResponse(
       emotionalResponse: "",
     },
     conversation: [
-      { role: "user", content: "Campaign brief submitted" },
+      { role: "user", content: question },
       { role: "assistant", content: reply },
     ],
   };
 }
-
