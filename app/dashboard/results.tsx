@@ -522,9 +522,6 @@ export default function Results({ data }: ResultsProps) {
               ))}
             </div>
           </div>
-          <p className="mt-2 text-xs text-zinc-500">
-            Open Pixero, then drag/drop this campaign brief or paste your store URL.
-          </p>
           <ol className="mt-3 list-decimal space-y-1 pl-5 text-xs text-zinc-400">
             <li>Step 1: Download your campaign brief below.</li>
             <li>
