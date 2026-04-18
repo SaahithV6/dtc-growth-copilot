@@ -76,7 +76,7 @@ export const campaignExportClient = {
       ? hashtags.map((tag) => `#${tag}`).join(" ")
       : `#${normalizeTag(niche)} #smallbusiness #shopnow`;
 
-    const summary = `Campaign export ready for ${niche}: ${topProducts.length || 0} product highlights, ${hashtags.length} trend hashtags, and ${improvements.length || 1} strategic recommendations from the Climate Advisory Board.`;
+    const summary = `Campaign export ready for ${niche}: ${topProducts.length || 0} product highlights, ${hashtags.length} trend hashtags, and ${improvements.length || 1} strategic recommendations from the Minds Brand Twin panel.`;
 
     const campaignBriefHtml = `<!doctype html>
 <html>
