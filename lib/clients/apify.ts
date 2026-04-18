@@ -130,6 +130,21 @@ async function scrapeInstagram(niche: string): Promise<{
 
 type EcommerceStartUrl = string | { url: string; [key: string]: unknown };
 
+function extractPrimaryUrl(
+  startUrls: EcommerceStartUrl[],
+): string {
+  const firstStringUrl = startUrls.find((url) => typeof url === "string");
+  if (firstStringUrl) {
+    return firstStringUrl;
+  }
+
+  const firstObjectUrl = startUrls.find(
+    (url) => typeof url === "object" && typeof url.url === "string",
+  ) as { url?: string } | undefined;
+
+  return firstObjectUrl?.url ?? "";
+}
+
 /* ── E-commerce product scrape ───────────────────────────── */
 async function scrapeEcommerce(
   startUrlsInput: string | EcommerceStartUrl | EcommerceStartUrl[],
@@ -150,11 +165,7 @@ async function scrapeEcommerce(
     const startUrls = Array.isArray(startUrlsInput)
       ? startUrlsInput
       : [startUrlsInput];
-    const primaryUrl = startUrls.find((url) => typeof url === "string")
-      ?? (startUrls.find(
-        (url) => typeof url === "object" && typeof url.url === "string",
-      ) as { url?: string } | undefined)?.url
-      ?? "";
+    const primaryUrl = extractPrimaryUrl(startUrls);
 
     const raw = await runActor<Record<string, unknown>>(
       "apify~e-commerce-scraping-tool",

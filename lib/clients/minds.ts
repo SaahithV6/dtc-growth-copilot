@@ -161,35 +161,49 @@ async function addSparkKnowledge(
 }
 
 function extractKeywordSignals(niche: string, scrape: ScrapeResult): string[] {
-  const tokens = new Set<string>([
-    niche,
-    "save the bears",
-    "wildlife conservation",
-  ]);
+  const tokens = new Set<string>();
+  const nicheTokens = niche
+    .split(/[,\-|/]/)
+    .map((part) => normalizeKeyword(part))
+    .filter((part) => part.length > 2);
+  nicheTokens.forEach((token) => tokens.add(token));
 
   const tiktokTrends = scrape?.tiktok?.trends ?? [];
   const instagramPosts = scrape?.instagram?.posts ?? [];
   const products = scrape?.shopify?.products ?? [];
 
   tiktokTrends.forEach((trend) => {
-    trend.hashtags?.forEach((tag) => tokens.add(normalizeKeyword(tag)));
+    trend.hashtags?.forEach((tag) => {
+      const normalized = normalizeKeyword(tag);
+      if (normalized.length > 2) {
+        tokens.add(normalized);
+      }
+    });
   });
 
   instagramPosts.forEach((post) => {
-    post.hashtags?.forEach((tag) => tokens.add(normalizeKeyword(tag)));
+    post.hashtags?.forEach((tag) => {
+      const normalized = normalizeKeyword(tag);
+      if (normalized.length > 2) {
+        tokens.add(normalized);
+      }
+    });
   });
 
   products.forEach((product) => {
-    tokens.add(normalizeKeyword(product.title));
+    const normalizedTitle = normalizeKeyword(product.title);
+    if (normalizedTitle.length > 2) {
+      tokens.add(normalizedTitle);
+    }
     if (product.productType) {
-      tokens.add(normalizeKeyword(product.productType));
+      const normalizedType = normalizeKeyword(product.productType);
+      if (normalizedType.length > 2) {
+        tokens.add(normalizedType);
+      }
     }
   });
 
-  return [...tokens]
-    .map((token) => normalizeKeyword(token))
-    .filter((token) => token.length > 2)
-    .slice(0, 30);
+  return [...tokens].slice(0, 30);
 }
 
 function normalizeKeyword(value: string): string {
