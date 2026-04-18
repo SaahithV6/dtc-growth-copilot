@@ -2,9 +2,18 @@ import axios from "axios";
 import type { BrandTwinFeedback, ScrapeResult } from "@/lib/schemas/campaign";
 
 const MINDS_API_KEY = process.env.MINDS_API_KEY ?? "";
+const MINDS_PANEL_ID =
+  process.env.MINDS_PANEL_ID ?? "2928c3d3-9e73-450d-818a-1e64de0446b0";
 const MINDS_BASE = "https://getminds.ai/api/v1";
-const BRAND_REVIEW_PANEL_ID = "2928c3d3-9e73-450d-818a-1e64de0446b0";
 const BRAND_REVIEW_PANEL_NAME = "Climate Board API Access";
+const PANEL_SPARK_IDS = [
+  "27cadfc7-7622-4787-baa0-3dc9fb2565bc",
+  "4a7bb54e-8c13-4675-9d26-663470763dd6",
+  "9cf313f6-6bd6-4465-a66e-2bf8e1ced63b",
+  "a61e56d1-4fd2-49e9-82b6-0f03859c970d",
+  "b8f74dda-a485-40a2-98ef-133072f296f5",
+  "eb077969-8aad-4f99-be7e-7a54f71db070",
+] as const;
 
 export const mindsClient = {
   async reviewBrand({
@@ -22,26 +31,22 @@ export const mindsClient = {
 
     try {
       const scrapeData = trends as ScrapeResult;
-      const sparkIds = await fetchPanelSparkIds();
+      const linkKnowledgeResults = await Promise.allSettled(
+        PANEL_SPARK_IDS.map((sparkId) =>
+          addSparkKnowledge(sparkId, {
+            link: url,
+            description: "DTC store to review",
+          }),
+        ),
+      );
+      logSettledFailures(linkKnowledgeResults, "link knowledge");
 
-      if (sparkIds.length) {
-        const linkKnowledgeResults = await Promise.allSettled(
-          sparkIds.map((sparkId) =>
-            addSparkKnowledge(sparkId, {
-              link: url,
-              description: "DTC store to review",
-            }),
-          ),
+      const keywords = extractKeywordSignals(niche, scrapeData);
+      if (keywords.length) {
+        const keywordKnowledgeResults = await Promise.allSettled(
+          PANEL_SPARK_IDS.map((sparkId) => addSparkKnowledge(sparkId, { keywords })),
         );
-        logSettledFailures(linkKnowledgeResults, "link knowledge");
-
-        const keywords = extractKeywordSignals(niche, scrapeData);
-        if (keywords.length) {
-          const keywordKnowledgeResults = await Promise.allSettled(
-            sparkIds.map((sparkId) => addSparkKnowledge(sparkId, { keywords })),
-          );
-          logSettledFailures(keywordKnowledgeResults, "keyword knowledge");
-        }
+        logSettledFailures(keywordKnowledgeResults, "keyword knowledge");
       }
 
       const question = buildPanelQuestion(url, niche, scrapeData);
@@ -127,31 +132,6 @@ const mindsHeaders = {
   "Content-Type": "application/json",
 };
 
-async function fetchPanelSparkIds(): Promise<string[]> {
-  const res = await axios.get(`${MINDS_BASE}/panels/${BRAND_REVIEW_PANEL_ID}`, {
-    headers: mindsHeaders,
-    timeout: 30_000,
-  });
-
-  const panelData = (res.data?.panel ?? res.data) as Record<string, unknown>;
-  const sparks = (panelData.sparks ?? []) as Array<unknown>;
-
-  return sparks
-    .map((spark) => {
-      if (typeof spark === "string") {
-        return spark;
-      }
-      if (spark && typeof spark === "object") {
-        const sparkRecord = spark as Record<string, unknown>;
-        return String(
-          sparkRecord.id ?? sparkRecord.sparkId ?? sparkRecord.uuid ?? "",
-        );
-      }
-      return "";
-    })
-    .filter(Boolean);
-}
-
 async function addSparkKnowledge(
   sparkId: string,
   payload: SparkKnowledgePayload,
@@ -235,7 +215,7 @@ function buildPanelQuestion(url: string, niche: string, scrape: ScrapeResult): s
 
 async function askPanel(question: string): Promise<string> {
   const response = await axios.post(
-    `${MINDS_BASE}/panels/${BRAND_REVIEW_PANEL_ID}/ask`,
+    `${MINDS_BASE}/panels/${MINDS_PANEL_ID}/ask`,
     { question },
     {
       headers: {

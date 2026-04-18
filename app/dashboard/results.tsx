@@ -7,7 +7,8 @@ interface ResultsProps {
 }
 
 export default function Results({ data }: ResultsProps) {
-  const instagramPosts = data.ads?.instagramPosts ?? [];
+  const campaignExport = data.campaignExport ?? data.ads;
+  const instagramPosts = campaignExport?.instagramPosts ?? [];
 
   function downloadFile(name: string, content: string, type: string) {
     const blob = new Blob([content], { type });
@@ -20,10 +21,21 @@ export default function Results({ data }: ResultsProps) {
   }
 
   function handleDownloadCampaignBrief() {
-    if (!data.ads?.campaignBrief?.html) {
+    if (!campaignExport?.campaignBrief?.html) {
       return;
     }
-    downloadFile("campaign-brief.html", data.ads.campaignBrief.html, "text/html");
+    downloadFile(
+      "campaign-brief.html",
+      campaignExport.campaignBrief.html,
+      "text/html",
+    );
+  }
+
+  function handleDownloadAsset(name: string, content: string) {
+    const type = name.toLowerCase().endsWith(".html")
+      ? "text/html"
+      : "text/plain";
+    downloadFile(name, content, type);
   }
 
   async function handleCopyCaption(caption: string, hashtags: string[]) {
@@ -204,18 +216,18 @@ export default function Results({ data }: ResultsProps) {
 
       {/* Campaign Export */}
       <Section title="📝 Campaign Export">
-        <Card title="Campaign Brief" status={data.ads?.status}>
+        <Card title="Campaign Brief" status={campaignExport?.status}>
           <div className="mb-4 flex flex-wrap gap-3">
             <button
               type="button"
               onClick={handleDownloadCampaignBrief}
               className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-black disabled:opacity-50"
-              disabled={!data.ads?.campaignBrief?.html}
+              disabled={!campaignExport?.campaignBrief?.html}
             >
               Download Campaign Brief
             </button>
             <a
-              href={data.ads?.campaignBrief?.pixeroUrl || "https://pixero.ai"}
+              href={campaignExport?.campaignBrief?.pixeroUrl || "https://pixero.ai"}
               target="_blank"
               rel="noreferrer"
               className="rounded-lg border border-zinc-700 px-3 py-2 text-xs font-semibold text-zinc-200"
@@ -223,13 +235,33 @@ export default function Results({ data }: ResultsProps) {
               Open in Pixero
             </a>
           </div>
-          {data.ads?.campaignBrief?.summary ? (
-            <p className="text-sm text-zinc-300">{data.ads.campaignBrief.summary}</p>
+          {campaignExport?.campaignBrief?.summary ? (
+            <p className="text-sm text-zinc-300">
+              {campaignExport.campaignBrief.summary}
+            </p>
           ) : (
             <p className="text-sm text-zinc-500">
               Campaign summary unavailable.
             </p>
           )}
+          <div className="mt-4 space-y-2">
+            <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+              Downloadable Assets
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {(campaignExport?.downloadableAssets ?? []).map((asset) => (
+                <button
+                  key={`${asset.type}-${asset.name}`}
+                  type="button"
+                  onClick={() => handleDownloadAsset(asset.name, asset.content)}
+                  className="rounded-lg border border-zinc-700 px-3 py-2 text-left text-xs font-semibold text-zinc-200"
+                >
+                  {asset.name}
+                  <span className="ml-2 text-zinc-500">({asset.type})</span>
+                </button>
+              ))}
+            </div>
+          </div>
           <p className="mt-2 text-xs text-zinc-500">
             Open Pixero, then drag/drop this campaign brief or paste your store URL.
           </p>
@@ -237,7 +269,7 @@ export default function Results({ data }: ResultsProps) {
       </Section>
 
       {/* Instagram Posts */}
-      <Section title="📸 Instagram Posts">
+      <Section title="📸 Instagram-Ready Posts">
         <div className="mb-3 flex justify-end">
           <button
             type="button"
