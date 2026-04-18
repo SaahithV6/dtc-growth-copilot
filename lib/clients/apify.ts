@@ -99,53 +99,103 @@ async function scrapeInstagram(niche: string): Promise<{
   }
 }
 
-/* -- Shopify products via free /products.json endpoint (no API key needed) -- */
-async function scrapeShopify(storeUrl: string): Promise<{
+type StartUrlObject = {
+  url: string;
+  [key: string]: unknown;
+};
+
+type StartUrlsInput = string | StartUrlObject | Array<string | StartUrlObject>;
+
+function normalizeUrl(url: string): string {
+  const trimmed = url.trim().replace(/\/+$/, "");
+  if (!trimmed) {
+    return "";
+  }
+  return trimmed.startsWith("http") ? trimmed : `https://${trimmed}`;
+}
+
+function normalizeStartUrls(input: StartUrlsInput): StartUrlObject[] {
+  const values = Array.isArray(input) ? input : [input];
+  return values.flatMap((value) => {
+    if (typeof value === "string") {
+      const normalized = normalizeUrl(value);
+      return normalized ? [{ url: normalized }] : [];
+    }
+    if (value && typeof value.url === "string") {
+      const normalized = normalizeUrl(value.url);
+      return normalized ? [{ ...value, url: normalized }] : [];
+    }
+    return [];
+  });
+}
+
+/* -- E-commerce products -- */
+async function scrapeEcommerce(startUrlsInput: StartUrlsInput): Promise<{
   status: "success" | "error";
   products?: ShopifyProduct[];
   storeName?: string;
   error?: string;
 }> {
+  if (!APIFY_TOKEN) {
+    return { status: "error", error: "APIFY_API_TOKEN not set" };
+  }
+
   try {
-    let baseUrl = storeUrl.replace(/\/+$/, "");
-    if (!baseUrl.startsWith("http")) {
-      baseUrl = `https://${baseUrl}`;
+    const startUrls = normalizeStartUrls(startUrlsInput);
+    if (!startUrls.length) {
+      return { status: "error", error: "Invalid store URL" };
     }
-    const productsUrl = `${baseUrl}/products.json?limit=50`;
 
-    const res = await axios.get(productsUrl, { timeout: 30_000 });
-    const rawProducts = res.data?.products ?? [];
-
-    const products: ShopifyProduct[] = rawProducts.map(
-      (item: Record<string, unknown>) => ({
-        title: String(item.title ?? ""),
-        description: String(item.body_html ?? item.description ?? ""),
-        vendor: String(item.vendor ?? ""),
-        productType: String(item.product_type ?? ""),
-        price: String(
-          (item.variants as Array<Record<string, unknown>> | undefined)?.[0]?.price ?? "",
-        ),
-        compareAtPrice: String(
-          (item.variants as Array<Record<string, unknown>> | undefined)?.[0]?.compare_at_price ?? "",
-        ),
-        images: Array.isArray(item.images)
-          ? (item.images as Array<Record<string, unknown>>).map((img) => String(img.src ?? img))
-          : [],
-        url: `${baseUrl}/products/${String(item.handle ?? "")}`,
-      }),
+    const raw = await runActor<Record<string, unknown>>(
+      "apify~e-commerce-scraping-tool",
+      {
+        startUrls,
+        maxItems: 50,
+      },
+      90,
     );
+
+    const baseUrl = startUrls[0]?.url ?? "";
+    const products: ShopifyProduct[] = raw.map((item) => {
+      const imageCandidates = item.images ?? item.imageUrls ?? item.image;
+      return {
+        title: String(item.title ?? item.name ?? ""),
+        description: String(
+          item.description ?? item.body_html ?? item.shortDescription ?? "",
+        ),
+        vendor: String(item.vendor ?? item.brand ?? ""),
+        productType: String(item.productType ?? item.category ?? ""),
+        price: String(item.price ?? item.currentPrice ?? item.salePrice ?? ""),
+        compareAtPrice: String(
+          item.compareAtPrice ?? item.originalPrice ?? item.oldPrice ?? "",
+        ),
+        images: Array.isArray(imageCandidates)
+          ? imageCandidates.map(String)
+          : imageCandidates
+            ? [String(imageCandidates)]
+            : [],
+        url: String(item.url ?? item.productUrl ?? ""),
+      };
+    }).filter((product) => Boolean(product.title || product.url));
 
     let storeName = "";
     try {
       const hostname = new URL(baseUrl).hostname.replace(/^www\./, "");
-      storeName = products[0]?.vendor || (hostname.endsWith(".myshopify.com") ? hostname.replace(".myshopify.com", "") : hostname);
+      storeName =
+        products[0]?.vendor ||
+        (hostname.endsWith(".myshopify.com")
+          ? hostname.replace(".myshopify.com", "")
+          : hostname);
     } catch {
       storeName = products[0]?.vendor || "";
     }
 
     return { status: "success", products, storeName };
   } catch (err: unknown) {
-    return { status: "error", error: err instanceof Error ? err.message : "Shopify products.json fetch failed" };
+    return {
+      status: "error",
+      error: err instanceof Error ? err.message : "E-commerce scrape failed",
+    };
   }
 }
 
@@ -153,13 +203,14 @@ async function scrapeShopify(storeUrl: string): Promise<{
 export const apifyClient = {
   scrapeTikTok,
   scrapeInstagram,
-  scrapeShopify,
+  scrapeEcommerce,
+  scrapeShopify: scrapeEcommerce,
 
   async scrapeAll(url: string, niche: string): Promise<ScrapeResult> {
     const [tiktok, instagram, shopify] = await Promise.all([
       scrapeTikTok(niche),
       scrapeInstagram(niche),
-      scrapeShopify(url),
+      scrapeEcommerce(url),
     ]);
     return { tiktok, instagram, shopify };
   },

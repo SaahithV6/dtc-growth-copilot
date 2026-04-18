@@ -12,8 +12,9 @@ export interface OrchestratorInput {
  * Main orchestration pipeline — coordinates all agents:
  * 1. Scrape (Apify: TikTok, Instagram, Shopify in parallel)
  * 2. Brand Twin Review (Minds AI)
- * 3. Campaign Export (Pixero-ready brief + Instagram assets)
- * 4. Compile action items
+ * 3. Generate Pixero-ready ads/captions
+ * 4. Campaign Export
+ * 5. Compile action items
  */
 export async function runCampaign(
   input: OrchestratorInput,
@@ -39,7 +40,7 @@ export async function runCampaign(
     trends: scrape,
   });
 
-  /* ── Step 3: Campaign Export ──────────────────────────────── */
+  /* ── Step 3: Pixero-ready ads + captions ─────────────────── */
   const ads = campaignExportClient.generateCampaignExport({
     url,
     niche,
@@ -47,13 +48,17 @@ export async function runCampaign(
     brandReview: brandTwin,
   });
 
-  /* ── Step 4: Compile action items ────────────────────────── */
-  const actionItems = compileActionItems(scrape, brandTwin, ads);
+  /* ── Step 4: Campaign Export ─────────────────────────────── */
+  const campaignExport = ads;
+
+  /* ── Step 5: Compile action items ────────────────────────── */
+  const actionItems = compileActionItems(scrape, brandTwin, campaignExport);
 
   return {
     scrape,
     brandTwin,
     ads,
+    campaignExport,
     actionItems,
     timestamp: new Date().toISOString(),
   };
@@ -62,7 +67,7 @@ export async function runCampaign(
 function compileActionItems(
   scrape: ScrapeResult,
   brandTwin: CampaignResult["brandTwin"],
-  ads: CampaignResult["ads"],
+  campaignExport: CampaignResult["campaignExport"],
 ): string[] {
   const items: string[] = [];
 
@@ -97,13 +102,13 @@ function compileActionItems(
   }
 
   // From campaign export
-  if (ads?.instagramPosts?.length) {
+  if (campaignExport?.instagramPosts?.length) {
     items.push(
-      `🎨 ${ads.instagramPosts.length} Instagram caption variants ready — test awareness, social proof, urgency, and UGC hooks`,
+      `🎨 ${campaignExport.instagramPosts.length} Instagram caption variants ready — test awareness, social proof, urgency, and UGC hooks`,
     );
   }
-  if (ads?.campaignBrief?.summary) {
-    items.push(`📝 ${ads.campaignBrief.summary}`);
+  if (campaignExport?.campaignBrief?.summary) {
+    items.push(`📝 ${campaignExport.campaignBrief.summary}`);
   }
   items.push("📱 Download campaign brief → drag into Pixero for Meta ads");
   items.push("📸 Copy Instagram captions → paste into Instagram posts");
