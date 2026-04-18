@@ -3,8 +3,8 @@ import type { BrandTwinFeedback, ScrapeResult } from "@/lib/schemas/campaign";
 
 const MINDS_API_KEY = process.env.MINDS_API_KEY ?? "";
 const MINDS_BASE = "https://getminds.ai/api/v1";
-const CLIMATE_PANEL_ID = "2928c3d3-9e73-450d-818a-1e64de0446b0";
-const CLIMATE_PANEL_NAME = "Climate Board API Access";
+const BRAND_REVIEW_PANEL_ID = "2928c3d3-9e73-450d-818a-1e64de0446b0";
+const BRAND_REVIEW_PANEL_NAME = "Climate Board API Access";
 
 export const mindsClient = {
   async reviewBrand({
@@ -25,7 +25,7 @@ export const mindsClient = {
       const sparkIds = await fetchPanelSparkIds();
 
       if (sparkIds.length) {
-        await Promise.allSettled(
+        const linkKnowledgeResults = await Promise.allSettled(
           sparkIds.map((sparkId) =>
             addSparkKnowledge(sparkId, {
               link: url,
@@ -33,12 +33,14 @@ export const mindsClient = {
             }),
           ),
         );
+        logSettledFailures(linkKnowledgeResults, "link knowledge");
 
         const keywords = extractKeywordSignals(niche, scrapeData);
         if (keywords.length) {
-          await Promise.allSettled(
+          const keywordKnowledgeResults = await Promise.allSettled(
             sparkIds.map((sparkId) => addSparkKnowledge(sparkId, { keywords })),
           );
+          logSettledFailures(keywordKnowledgeResults, "keyword knowledge");
         }
       }
 
@@ -76,7 +78,7 @@ export const mindsClient = {
 
     return {
       status: "success",
-      personaName: CLIMATE_PANEL_NAME,
+      personaName: BRAND_REVIEW_PANEL_NAME,
       overallScore: 7.5,
       feedback: {
         brandPerception: `Based on ${products.length} products at avg $${avgPrice}, this brand targets a value-conscious ${niche} buyer. The product range ${products.length > 5 ? "is well diversified" : "could benefit from expansion"}.`,
@@ -96,7 +98,7 @@ export const mindsClient = {
       conversation: [
         {
           role: "system",
-          content: `${CLIMATE_PANEL_NAME} fallback analysis generated from scraped data.`,
+          content: `${BRAND_REVIEW_PANEL_NAME} fallback analysis generated from scraped data.`,
         },
         {
           role: "user",
@@ -126,7 +128,7 @@ const mindsHeaders = {
 };
 
 async function fetchPanelSparkIds(): Promise<string[]> {
-  const res = await axios.get(`${MINDS_BASE}/panels/${CLIMATE_PANEL_ID}`, {
+  const res = await axios.get(`${MINDS_BASE}/panels/${BRAND_REVIEW_PANEL_ID}`, {
     headers: mindsHeaders,
     timeout: 30_000,
   });
@@ -232,21 +234,48 @@ function buildPanelQuestion(url: string, niche: string, scrape: ScrapeResult): s
 }
 
 async function askPanel(question: string): Promise<string> {
-  const response = await fetch(`${MINDS_BASE}/panels/${CLIMATE_PANEL_ID}/ask`, {
-    method: "POST",
-    headers: {
-      ...mindsHeaders,
-      Accept: "text/event-stream, application/json",
+  const response = await axios.post(
+    `${MINDS_BASE}/panels/${BRAND_REVIEW_PANEL_ID}/ask`,
+    { question },
+    {
+      headers: {
+        ...mindsHeaders,
+        Accept: "text/event-stream, application/json",
+      },
+      timeout: 60_000,
+      responseType: "text",
+      transformResponse: [(data) => data],
+      validateStatus: () => true,
     },
-    body: JSON.stringify({ question }),
-  });
+  );
 
-  if (!response.ok) {
-    throw new Error(`Minds panel ask failed with ${response.status}`);
+  if (response.status >= 400) {
+    const payloadPreview = String(response.data ?? "").slice(0, 200);
+    throw new Error(
+      `Minds panel ask failed with ${response.status}: ${payloadPreview}`,
+    );
   }
 
-  const raw = await response.text();
+  const raw =
+    typeof response.data === "string"
+      ? response.data
+      : JSON.stringify(response.data);
   return parseSseOrRawResponse(raw);
+}
+
+function logSettledFailures(
+  results: PromiseSettledResult<unknown>[],
+  context: string,
+): void {
+  results.forEach((result) => {
+    if (result.status === "rejected") {
+      const reason =
+        result.reason instanceof Error
+          ? result.reason.message
+          : String(result.reason);
+      console.warn(`Minds ${context} enrichment failed: ${reason}`);
+    }
+  });
 }
 
 function parseSseOrRawResponse(raw: string): string {
@@ -325,7 +354,7 @@ function parsePanelResponse(reply: string, question: string): BrandTwinFeedback 
       const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
       return {
         status: "success",
-        personaName: CLIMATE_PANEL_NAME,
+        personaName: BRAND_REVIEW_PANEL_NAME,
         overallScore: Number(parsed.overallScore ?? 7),
         feedback: {
           brandPerception: String(parsed.brandPerception ?? ""),
@@ -348,7 +377,7 @@ function parsePanelResponse(reply: string, question: string): BrandTwinFeedback 
 
   return {
     status: "success",
-    personaName: CLIMATE_PANEL_NAME,
+    personaName: BRAND_REVIEW_PANEL_NAME,
     overallScore: 7,
     feedback: {
       brandPerception: reply.slice(0, 500),

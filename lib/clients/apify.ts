@@ -133,16 +133,31 @@ type EcommerceStartUrl = string | { url: string; [key: string]: unknown };
 function extractPrimaryUrl(
   startUrls: EcommerceStartUrl[],
 ): string {
-  const firstStringUrl = startUrls.find((url) => typeof url === "string");
-  if (firstStringUrl) {
-    return firstStringUrl;
+  for (const entry of startUrls) {
+    if (typeof entry === "string") {
+      return entry;
+    }
+    if (entry && typeof entry === "object" && typeof entry.url === "string") {
+      return entry.url;
+    }
+  }
+  return "";
+}
+
+function deriveStoreNameFromUrl(primaryUrl: string): string {
+  if (!primaryUrl) {
+    return "";
   }
 
-  const firstObjectUrl = startUrls.find(
-    (url) => typeof url === "object" && typeof url.url === "string",
-  ) as { url?: string } | undefined;
-
-  return firstObjectUrl?.url ?? "";
+  try {
+    const hostname = new URL(primaryUrl).hostname.replace(/^www\./, "");
+    if (hostname.endsWith(".myshopify.com")) {
+      return hostname.replace(".myshopify.com", "");
+    }
+    return hostname;
+  } catch {
+    return primaryUrl;
+  }
 }
 
 /* ── E-commerce product scrape ───────────────────────────── */
@@ -200,13 +215,7 @@ async function scrapeEcommerce(
 
     let derivedStoreName = "";
     if (primaryUrl) {
-      try {
-        derivedStoreName = new URL(primaryUrl)
-          .hostname
-          .replace(".myshopify.com", "");
-      } catch {
-        derivedStoreName = primaryUrl;
-      }
+      derivedStoreName = deriveStoreNameFromUrl(primaryUrl);
     }
 
     const storeName = products[0]?.vendor || derivedStoreName;
