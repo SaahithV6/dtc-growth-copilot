@@ -2,7 +2,7 @@ import axios from "axios";
 
 const IG_ACCESS_TOKEN = process.env.INSTAGRAM_ACCESS_TOKEN ?? "";
 const IG_USER_ID = process.env.INSTAGRAM_USER_ID ?? "";
-const GRAPH_API_BASE = "https://graph.facebook.com/v19.0";
+const GRAPH_API_BASE = "https://graph.facebook.com/v25.0";
 
 interface PublishResult {
   success: boolean;
