@@ -249,9 +249,9 @@ export default function Results({ data }: ResultsProps) {
               Downloadable Assets
             </p>
             <div className="grid gap-2 sm:grid-cols-2">
-              {(campaignExport?.downloadableAssets ?? []).map((asset, index) => (
+              {(campaignExport?.downloadableAssets ?? []).map((asset) => (
                 <button
-                  key={`${asset.name}-${index}`}
+                  key={`${asset.type}-${asset.name}`}
                   type="button"
                   onClick={() => handleDownloadAsset(asset.name, asset.content)}
                   className="rounded-lg border border-zinc-700 px-3 py-2 text-left text-xs font-semibold text-zinc-200"
@@ -269,7 +269,7 @@ export default function Results({ data }: ResultsProps) {
       </Section>
 
       {/* Instagram Posts */}
-      <Section title="📸 Instagram-ready Posts">
+      <Section title="📸 Instagram-Ready Posts">
         <div className="mb-3 flex justify-end">
           <button
             type="button"

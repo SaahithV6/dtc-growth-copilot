@@ -41,7 +41,7 @@ export async function runCampaign(
   });
 
   /* ── Step 3: Pixero-ready ads + captions ─────────────────── */
-  const ads = campaignExportClient.generateCampaignExport({
+  const campaignExport = campaignExportClient.generateCampaignExport({
     url,
     niche,
     trends: scrape,
@@ -49,7 +49,8 @@ export async function runCampaign(
   });
 
   /* ── Step 4: Campaign Export ─────────────────────────────── */
-  const campaignExport = ads;
+  // Keep `ads` as a legacy alias until API consumers migrate to `campaignExport`.
+  const ads = campaignExport;
 
   /* ── Step 5: Compile action items ────────────────────────── */
   const actionItems = compileActionItems(scrape, brandTwin, campaignExport);

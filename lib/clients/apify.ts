@@ -176,7 +176,7 @@ async function scrapeEcommerce(startUrlsInput: StartUrlsInput): Promise<{
             : [],
         url: String(item.url ?? item.productUrl ?? ""),
       };
-    }).filter((product) => Boolean(product.title || product.url));
+    }).filter((product) => product.title.trim());
 
     let storeName = "";
     try {
@@ -204,6 +204,7 @@ export const apifyClient = {
   scrapeTikTok,
   scrapeInstagram,
   scrapeEcommerce,
+  /** @deprecated Use scrapeEcommerce. */
   scrapeShopify: scrapeEcommerce,
 
   async scrapeAll(url: string, niche: string): Promise<ScrapeResult> {
